@@ -54,6 +54,11 @@ pub const PRIME_NEAR_THIRTEEN_FACTORIAL: Block = 6227020777;
 pub const BLOCK_BITS: u32 = (8 * size_of::<Block>()) as u32;
 pub const ROUND_MULTIPLES: [u32; 13] = [2, BLOCK_BITS - 3, 5, BLOCK_BITS - 7, 11, BLOCK_BITS - 17, 19, BLOCK_BITS - 23, 29, BLOCK_BITS - 31, 37, BLOCK_BITS - 41, 43];
 
+pub const ROUND_IVS: [Block; 2] = [
+    NOTHING_UP_MY_SLEEVE,
+    NOTHING_UP_MY_SLEEVE_2
+];
+
 pub fn permutation_step(input: Block, mutation: Mutation) -> Block {
     match mutation {
         Mutation::Rotate32 => input.rotate_left(32),
@@ -79,10 +84,10 @@ pub fn permutation(input: Block, permutation_index: Block) -> Block {
 
 pub fn round_key(k1: Block, k2: Block, round: Block) -> Block {
     let permuted_k2 = permutation(NOTHING_UP_MY_SLEEVE_2, k2 % PRIME_NEAR_THIRTEEN_FACTORIAL);
-    (k1.rotate_left(ROUND_MULTIPLES[round as usize])) ^ permuted_k2
+    (k1.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()])) ^ permuted_k2
 }
 
-pub const ROUNDS: u32 = ROUND_MULTIPLES.len() as u32;
+pub const ROUNDS: u32 = ROUND_MULTIPLES.len() as u32 * 2 + 1;
 
 pub struct Feistel {
     k1: Block,
@@ -97,22 +102,22 @@ impl Feistel {
     fn permute(&mut self, input: Block) -> Block {
         let mut l: Block = 0;
         let mut r: Block = 0;
-        for init in [NOTHING_UP_MY_SLEEVE, NOTHING_UP_MY_SLEEVE_2, NOTHING_UP_MY_SLEEVE_3] {
-            l = init;
+        for iv in ROUND_IVS {
+            l = iv;
             r = input;
-            let mut t: Block;
-            for round in 0..ROUNDS
-            {
+            let mut u: Block = 0;
+            for round in 0..ROUNDS {
+                let mut t: Block;
                 let k = round_key(self.k1, self.k2, round as Block);
-                t = permutation(r % THIRTEEN_FACTORIAL, k);
-                let u = t ^ l;
+                t = permutation(k, r % THIRTEEN_FACTORIAL);
+                u = t ^ l;
                 l = r;
-                r = u.rotate_right(round * 2 + 1);
+                r = u;
             }
-            self.k1 = l;
-            self.k2 = r;
+            self.k2 = self.k2 ^ u;
         }
-        permutation(l % THIRTEEN_FACTORIAL, r)
+        self.k1 = self.k1.rotate_right(7) ^ l;
+        permutation(l, r % PRIME_NEAR_THIRTEEN_FACTORIAL)
     }
 }
 
@@ -152,7 +157,7 @@ mod tests {
         let feistel = Feistel::new(0, 0);
         let hash = feistel.finish();
         println!("[] -> {:016x}", hash);
-        hashes.insert(feistel.finish());
+        assert!(hashes.insert(feistel.finish()));
         for b1 in 0..=u8::MAX {
             let mut feistel = Feistel::new(0, 0);
             feistel.write(&[b1]);
@@ -163,12 +168,19 @@ mod tests {
                 let mut feistel = Feistel::new(0, 0);
                 feistel.write(&[b1, b2]);
                 let hash = feistel.finish();
-                let hex = format!("{:016x}", hash);
-                println!("[{:02x}, {:02x}] -> {}", b1, b2, hex);
-                last_digits.push(hex.as_bytes()[15] as char);
                 assert!(hashes.insert(hash));
+                println!("[{:02x}, {:02x}] -> {}", b1, b2, hash);
+                for b3 in 0..=u8::MAX {
+                    let mut feistel = Feistel::new(0, 0);
+                    feistel.write(&[b1, b2, b3]);
+                    let hash = feistel.finish();
+                    assert!(hashes.insert(hash));
+                    let hex = format!("{:016x}", hash);
+                    println!("[{:02x}, {:02x}, {:02x}] -> {}", b1, b2, b3, hex);
+                    last_digits.push(hex.as_bytes()[15] as char);
+                }
+                last_digits.push('\n');
             }
-            last_digits.push('\n');
         }
         println!("{}", last_digits);
     }
