@@ -112,8 +112,7 @@ impl Feistel {
             round_key_base_2 % PRIME_NEAR_THIRTEEN_FACTORIAL,
             round_key_base_3 % SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL,
             permutation(round_key_base_2, (round_key_base_3.rotate_right(47) ^ round_key_base_1) % PRIME_NEAR_THIRTEEN_FACTORIAL) % THIRTEEN_FACTORIAL,
-            (round_key_base_2 ^ ParallelReverse::swap_bits(self.k1.wrapping_add(round_key_base_1))) % PRIME_NEAR_THIRTEEN_FACTORIAL,
-            (round_key_base_3 ^ ParallelReverse::swap_bits(self.k2.wrapping_add(round_key_base_2))) % SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL,
+            (round_key_base_2 ^ ParallelReverse::swap_bits(self.k1.wrapping_add(round_key_base_1))) % THIRTEEN_FACTORIAL,
         ];
         for round_permutation in round_permutations.into_iter() {
             let old_l = l;
