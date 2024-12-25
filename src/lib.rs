@@ -87,12 +87,6 @@ pub fn permutation(input: Block, permutation_index: Block) -> Block {
         permutation_step(input, mutations.apply(index)))
 }
 
-#[inline(always)]
-pub fn round_key(k1: Block, k2: Block, round: Block) -> Block {
-    let permuted_k2 = permutation(NOTHING_UP_MY_SLEEVE_2, k2 % PRIME_NEAR_THIRTEEN_FACTORIAL);
-    (k1.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()] as u32)) ^ permuted_k2
-}
-
 pub const ROUNDS: Block = ROUND_MULTIPLES.len() as Block;
 
 pub struct Feistel {
@@ -113,8 +107,9 @@ impl Feistel {
         let mut r = input;
         let mut final_u: Block = 0;
         let round_key_base = self.k1.wrapping_add(counter_high);
+        let permuted_k2 = permutation(NOTHING_UP_MY_SLEEVE_2, self.k2 % PRIME_NEAR_THIRTEEN_FACTORIAL);
         for round in 0..ROUNDS {
-            let k = round_key(round_key_base, self.k2, round);
+            let k = (round_key_base.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()] as u32)) ^ permuted_k2;
             let t = permutation(k, r % THIRTEEN_FACTORIAL);
             let u = t ^ l;
             l = r;
