@@ -79,6 +79,7 @@ pub fn permutation_step(input: Block, mutation: usize) -> Block {
 
 const PERMUTATIONS: OnceLock<Permutations> = OnceLock::new();
 
+#[inline(always)]
 pub fn permutation(input: Block, permutation_index: Block) -> Block {
     let mutations = PERMUTATIONS.get_or_init(|| Permutations::new(variant_count::<Mutation>()))
         .get(permutation_index as usize).unwrap();
@@ -105,10 +106,9 @@ impl Feistel {
         Self { k1, k2, counter: k3.into() }
     }
 
+    #[inline(always)]
     fn permute(&mut self, input: Block) -> Block {
-        let counter_bytes = self.counter.to_ne_bytes();
-        let counter_high: Block = Block::from_ne_bytes(counter_bytes[8..=15].try_into().unwrap());
-        let counter_low: Block = Block::from_ne_bytes(counter_bytes[0..=7].try_into().unwrap());
+        let (counter_low, counter_high) = self.counter_as_blocks();
         let mut l = NOTHING_UP_MY_SLEEVE.wrapping_add(counter_low.wrapping_add(self.k2.rotate_right(13)));
         let mut r = input;
         let mut u: Block = 0;
@@ -124,6 +124,14 @@ impl Feistel {
         self.counter += 1;
         permutation(l, r % PRIME_NEAR_THIRTEEN_FACTORIAL)
     }
+
+    #[inline(always)]
+    fn counter_as_blocks(&self) -> (u64, u64) {
+        let counter_bytes = self.counter.to_ne_bytes();
+        let counter_low = Block::from_ne_bytes(counter_bytes[0..=7].try_into().unwrap());
+        let counter_high = Block::from_ne_bytes(counter_bytes[8..=15].try_into().unwrap());
+        (counter_low, counter_high)
+    }
 }
 
 impl BlockRngCore for Feistel {
@@ -131,6 +139,7 @@ impl BlockRngCore for Feistel {
     type Item = Block;
     type Results = [Block; 2];
 
+    #[inline(always)]
     fn generate(&mut self, results: &mut Self::Results) {
         results[0] = self.permute(NOTHING_UP_MY_SLEEVE_3);
         results[1] = self.k1.rotate_right(32) ^ self.k2;
@@ -138,12 +147,13 @@ impl BlockRngCore for Feistel {
 }
 
 impl Hasher for Feistel {
+    #[inline(always)]
     fn finish(&self) -> u64 {
-        let counter_low = Block::from_ne_bytes(self.counter.to_ne_bytes()[0..=7].try_into().unwrap());
-        let counter_high = Block::from_ne_bytes(self.counter.to_ne_bytes()[8..=15].try_into().unwrap());
+        let (counter_low, counter_high) = self.counter_as_blocks();
         self.k1.wrapping_add(counter_low.wrapping_mul(NOTHING_UP_MY_SLEEVE)) ^ (self.k2.wrapping_add(counter_high))
     }
 
+    #[inline(always)]
     fn write(&mut self, bytes: &[u8]) {
         self.permute(bytes.len() as Block);
         for byte in bytes {
