@@ -105,19 +105,15 @@ impl Feistel {
         let (counter_low, counter_high) = self.counter_as_blocks();
         let mut l = NOTHING_UP_MY_SLEEVE.wrapping_add(counter_low.wrapping_add(self.k2.rotate_right(13)));
         let mut r = input;
-        let mut final_u: Block = 0;
         let round_key_base = self.k1.wrapping_add(counter_high);
         let permuted_k2 = permutation(NOTHING_UP_MY_SLEEVE_2, self.k2 % PRIME_NEAR_THIRTEEN_FACTORIAL);
         for round in 0..ROUNDS {
-            let k = (round_key_base.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()] as u32)) ^ permuted_k2;
-            let t = permutation(k, r % THIRTEEN_FACTORIAL);
-            let u = t ^ l;
+            let old_l = l;
             l = r;
-            r = u;
-            final_u = u;
+            r = permutation((round_key_base.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()] as u32)) ^ permuted_k2, r % THIRTEEN_FACTORIAL) ^ old_l;
         }
         self.k1 = self.k1.rotate_right(7) ^ l;
-        self.k2 ^= final_u;
+        self.k2 ^= r;
         self.counter += 1;
         permutation(l, r % PRIME_NEAR_THIRTEEN_FACTORIAL)
     }
