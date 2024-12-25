@@ -34,13 +34,9 @@ pub enum Mutation {
 
 pub const THIRTEEN_FACTORIAL: Block = 6227020800;
 pub const PRIME_NEAR_THIRTEEN_FACTORIAL: Block = 6227020777;
+pub const SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL: Block = 6227020739;
 pub const BLOCK_BITS: u8 = (8 * size_of::<Block>()) as u8;
 pub const ROUND_MULTIPLES: [u8; 13] = [2, BLOCK_BITS - 3, 5, BLOCK_BITS - 7, 11, BLOCK_BITS - 17, 19, BLOCK_BITS - 23, 29, BLOCK_BITS - 31, 37, BLOCK_BITS - 41, 43];
-
-pub const ROUND_IVS: [Block; 2] = [
-    NOTHING_UP_MY_SLEEVE,
-    NOTHING_UP_MY_SLEEVE_2
-];
 
 const fn build_rotation_amounts() -> [u8; 13] {
     let mut amounts = [0; 13];
@@ -103,14 +99,26 @@ impl Feistel {
     #[inline(always)]
     fn permute(&mut self, input: Block) -> Block {
         let (counter_low, counter_high) = self.counter_as_blocks();
-        let mut l = NOTHING_UP_MY_SLEEVE.wrapping_add(counter_low.wrapping_add(self.k2.rotate_right(13)));
-        let mut r = input;
-        let round_key_base = self.k1.wrapping_add(counter_high);
-        let permuted_k2 = permutation(NOTHING_UP_MY_SLEEVE_2, self.k2 % PRIME_NEAR_THIRTEEN_FACTORIAL);
-        for round in 0..ROUNDS {
+        let round_key_base_1 = (self.k1 ^ NOTHING_UP_MY_SLEEVE).wrapping_add(NOTHING_UP_MY_SLEEVE_2.wrapping_mul(self.k2 ^ NOTHING_UP_MY_SLEEVE_3));
+        let round_key_base_2 = (self.k2 ^ NOTHING_UP_MY_SLEEVE_2).wrapping_add(NOTHING_UP_MY_SLEEVE_3.wrapping_mul(self.k1 ^ NOTHING_UP_MY_SLEEVE));
+        let round_key_base_3 = (ParallelReverse::swap_bits(self.k1 ^ self.k2) ^ NOTHING_UP_MY_SLEEVE_3).wrapping_add(NOTHING_UP_MY_SLEEVE.wrapping_mul(self.k1.wrapping_add(self.k2) ^ NOTHING_UP_MY_SLEEVE_2));
+        let mut l = NOTHING_UP_MY_SLEEVE.wrapping_add(counter_low).wrapping_add(self.k2.rotate_right(3));
+        let mut r = input.wrapping_add(counter_high);
+        let round_permutations = [
+            round_key_base_1 % THIRTEEN_FACTORIAL,
+            permutation(round_key_base_3, (round_key_base_1.rotate_right(17) ^ round_key_base_2) % THIRTEEN_FACTORIAL) % PRIME_NEAR_THIRTEEN_FACTORIAL,
+            (round_key_base_1 ^ round_key_base_2 ^ ParallelReverse::swap_bits(round_key_base_3)) % SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL,
+            permutation(round_key_base_1, (round_key_base_2.rotate_right(31) ^ round_key_base_3) % SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL) % THIRTEEN_FACTORIAL,
+            round_key_base_2 % PRIME_NEAR_THIRTEEN_FACTORIAL,
+            round_key_base_3 % SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL,
+            permutation(round_key_base_2, (round_key_base_3.rotate_right(47) ^ round_key_base_1) % PRIME_NEAR_THIRTEEN_FACTORIAL) % THIRTEEN_FACTORIAL,
+            (round_key_base_2 ^ ParallelReverse::swap_bits(self.k1.wrapping_add(round_key_base_1))) % PRIME_NEAR_THIRTEEN_FACTORIAL,
+            (round_key_base_3 ^ ParallelReverse::swap_bits(self.k2.wrapping_add(round_key_base_2))) % SECOND_PRIME_NEAR_THIRTEEN_FACTORIAL,
+        ];
+        for round_permutation in round_permutations.into_iter() {
             let old_l = l;
             l = r;
-            r = permutation((round_key_base.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()] as u32)) ^ permuted_k2, r % THIRTEEN_FACTORIAL) ^ old_l;
+            r = permutation(r, round_permutation) ^ old_l;
         }
         self.k1 = self.k1.rotate_right(7) ^ l;
         self.k2 ^= r;
@@ -179,14 +187,14 @@ mod tests {
                 let mut feistel = Feistel::new(0, 0, 0);
                 feistel.write(&[b1, b2]);
                 let hash = feistel.finish();
+                println!("[{:02x}, {:02x}] -> {:016x}", b1, b2, hash);
                 assert!(hashes.insert(hash));
-                println!("[{:02x}, {:02x}] -> {}", b1, b2, hash);
                 for b3 in 0..=u8::MAX {
                     let mut feistel = Feistel::new(0, 0, 0);
                     feistel.write(&[b1, b2, b3]);
                     let hash = feistel.finish();
-                    assert!(hashes.insert(hash));
                     let hex = format!("{:016x}", hash);
+                    assert!(hashes.insert(hash));
                     println!("[{:02x}, {:02x}, {:02x}] -> {}", b1, b2, b3, hex);
                     last_digits.push(hex.as_bytes()[15] as char);
                 }
