@@ -1,12 +1,11 @@
 #![feature(variant_count)]
 
 use std::hash::Hasher;
-use std::mem::variant_count;
-use std::ops::Shr;
+use std::mem::{variant_count};
+use std::sync::OnceLock;
 use bit_reverse::ParallelReverse;
 use permutations::Permutations;
 use rand_core::block::BlockRngCore;
-use rand_core::RngCore;
 
 type Block = u64;
 
@@ -15,7 +14,7 @@ pub const NOTHING_UP_MY_SLEEVE: Block = 0xc90f_daa2_2168_c234;
 pub const NOTHING_UP_MY_SLEEVE_2: Block = 0xc4c6_628b_80dc_1cd1;
 pub const NOTHING_UP_MY_SLEEVE_3: Block = 0x2902_4e08_8a67_cc74;
 
-#[repr(u8)]
+#[repr(usize)]
 #[derive(Clone, Copy, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum Mutation {
     Rotate32,
@@ -33,90 +32,94 @@ pub enum Mutation {
     Reverse
 }
 
-pub const ALL_MUTATIONS: [Mutation; 13] = [
-    Mutation::Rotate32,
-    Mutation::Stripe1,
-    Mutation::Rotate16,
-    Mutation::Reverse,
-    Mutation::Stripe2,
-    Mutation::Rotate8,
-    Mutation::Stripe4,
-    Mutation::Rotate4,
-    Mutation::Stripe8,
-    Mutation::Rotate2,
-    Mutation::Rotate1,
-    Mutation::Stripe32,
-    Mutation::Stripe16,
-];
-
 pub const THIRTEEN_FACTORIAL: Block = 6227020800;
 pub const PRIME_NEAR_THIRTEEN_FACTORIAL: Block = 6227020777;
-pub const BLOCK_BITS: u32 = (8 * size_of::<Block>()) as u32;
-pub const ROUND_MULTIPLES: [u32; 13] = [2, BLOCK_BITS - 3, 5, BLOCK_BITS - 7, 11, BLOCK_BITS - 17, 19, BLOCK_BITS - 23, 29, BLOCK_BITS - 31, 37, BLOCK_BITS - 41, 43];
+pub const BLOCK_BITS: u8 = (8 * size_of::<Block>()) as u8;
+pub const ROUND_MULTIPLES: [u8; 13] = [2, BLOCK_BITS - 3, 5, BLOCK_BITS - 7, 11, BLOCK_BITS - 17, 19, BLOCK_BITS - 23, 29, BLOCK_BITS - 31, 37, BLOCK_BITS - 41, 43];
 
 pub const ROUND_IVS: [Block; 2] = [
     NOTHING_UP_MY_SLEEVE,
     NOTHING_UP_MY_SLEEVE_2
 ];
 
-pub fn permutation_step(input: Block, mutation: Mutation) -> Block {
+const fn build_rotation_amounts() -> [u8; 13] {
+    let mut amounts = [0; 13];
+    amounts[Mutation::Rotate32 as usize] = BLOCK_BITS - 32;
+    amounts[Mutation::Rotate16 as usize] = 16;
+    amounts[Mutation::Rotate8 as usize] = BLOCK_BITS - 8;
+    amounts[Mutation::Rotate4 as usize] = 4;
+    amounts[Mutation::Rotate2 as usize] = BLOCK_BITS - 2;
+    amounts[Mutation::Rotate1 as usize] = 1;
+    amounts
+}
+
+const ROTATION_AMOUNTS: [u8; 13] = build_rotation_amounts();
+
+const fn build_stripe_masks() -> [Block; 13] {
+    let mut amounts = [0; 13];
+    amounts[Mutation::Stripe32 as usize] = 0x00000000FFFFFFFF;
+    amounts[Mutation::Stripe16 as usize] = 0xFFFF0000FFFF0000;
+    amounts[Mutation::Stripe8 as usize] = 0x00FF00FF00FF00FF;
+    amounts[Mutation::Stripe4 as usize] = 0xF0F0F0F0F0F0F0F0;
+    amounts[Mutation::Stripe2 as usize] = 0x3333333333333333;
+    amounts[Mutation::Stripe1 as usize] = 0xAAAAAAAAAAAAAAAA;
+    amounts
+}
+
+const STRIPE_MASKS: [Block; 13] = build_stripe_masks();
+const REVERSE: usize = Mutation::Reverse as usize;
+
+#[inline(always)]
+pub fn permutation_step(input: Block, mutation: usize) -> Block {
     match mutation {
-        Mutation::Rotate32 => input.rotate_left(32),
-        Mutation::Rotate16 => input.rotate_right(16),
-        Mutation::Rotate8 => input.rotate_left(8),
-        Mutation::Rotate4 => input.rotate_right(4),
-        Mutation::Rotate2 => input.rotate_left(2),
-        Mutation::Rotate1 => input.rotate_right(1),
-        Mutation::Stripe32 => input ^ 0x00000000FFFFFFFF,
-        Mutation::Stripe16 => input ^ 0xFFFF0000FFFF0000,
-        Mutation::Stripe8 => input ^ 0x00FF00FF00FF00FF,
-        Mutation::Stripe4 => input ^ 0xF0F0F0F0F0F0F0F0,
-        Mutation::Stripe2 => input ^ 0x3333333333333333,
-        Mutation::Stripe1 => input ^ 0xAAAAAAAAAAAAAAAA,
-        Mutation::Reverse => ParallelReverse::swap_bits(input),
+        REVERSE => ParallelReverse::swap_bits(input),
+        _ => input.rotate_left(ROTATION_AMOUNTS[mutation] as u32) ^ STRIPE_MASKS[mutation]
     }
 }
 
+const PERMUTATIONS: OnceLock<Permutations> = OnceLock::new();
+
 pub fn permutation(input: Block, permutation_index: Block) -> Block {
-    let mutations = Permutations::new(variant_count::<Mutation>()).get((permutation_index) as usize).unwrap();
-    mutations.permute(&ALL_MUTATIONS).into_iter().fold(input, permutation_step)
+    let mutations = PERMUTATIONS.get_or_init(|| Permutations::new(variant_count::<Mutation>()))
+        .get(permutation_index as usize).unwrap();
+    (0..variant_count::<Mutation>()).fold(input, |input, index|
+        permutation_step(input, mutations.apply(index)))
 }
 
 pub fn round_key(k1: Block, k2: Block, round: Block) -> Block {
     let permuted_k2 = permutation(NOTHING_UP_MY_SLEEVE_2, k2 % PRIME_NEAR_THIRTEEN_FACTORIAL);
-    (k1.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()])) ^ permuted_k2
+    (k1.rotate_left(ROUND_MULTIPLES[round as usize % ROUND_MULTIPLES.len()] as u32)) ^ permuted_k2
 }
 
-pub const ROUNDS: u32 = ROUND_MULTIPLES.len() as u32 * 2 + 1;
+pub const ROUNDS: Block = ROUND_MULTIPLES.len() as Block;
 
 pub struct Feistel {
     k1: Block,
-    k2: Block
+    k2: Block,
+    counter: u128
 }
 
 impl Feistel {
-    pub fn new(k1: Block, k2: Block) -> Self {
-        Self { k1, k2 }
+    pub fn new(k1: Block, k2: Block, k3: Block) -> Self {
+        Self { k1, k2, counter: k3.into() }
     }
 
     fn permute(&mut self, input: Block) -> Block {
-        let mut l: Block = 0;
-        let mut r: Block = 0;
-        for iv in ROUND_IVS {
-            l = iv;
-            r = input;
-            let mut u: Block = 0;
-            for round in 0..ROUNDS {
-                let mut t: Block;
-                let k = round_key(self.k1, self.k2, round as Block);
-                t = permutation(k, r % THIRTEEN_FACTORIAL);
-                u = t ^ l;
-                l = r;
-                r = u;
-            }
-            self.k2 = self.k2 ^ u;
+        let counter_high: Block = Block::from_ne_bytes(self.counter.to_ne_bytes()[8..=15].try_into().unwrap());
+        let counter_low: Block = Block::from_ne_bytes(self.counter.to_ne_bytes()[0..=7].try_into().unwrap());
+        let mut l = NOTHING_UP_MY_SLEEVE.wrapping_add(counter_low.wrapping_add(self.k2.rotate_right(13)));
+        let mut r = input;
+        let mut u: Block = 0;
+        for round in 0..ROUNDS {
+            let k = round_key(self.k1.wrapping_add(counter_high), self.k2, round);
+            let t = permutation(k, r % THIRTEEN_FACTORIAL);
+            u = t ^ l;
+            l = r;
+            r = u;
         }
         self.k1 = self.k1.rotate_right(7) ^ l;
+        self.k2 ^= u;
+        self.counter += 1;
         permutation(l, r % PRIME_NEAR_THIRTEEN_FACTORIAL)
     }
 }
@@ -124,20 +127,23 @@ impl Feistel {
 impl BlockRngCore for Feistel {
 
     type Item = Block;
-    type Results = [Block; 1];
+    type Results = [Block; 2];
 
     fn generate(&mut self, results: &mut Self::Results) {
         results[0] = self.permute(NOTHING_UP_MY_SLEEVE_3);
+        results[1] = self.k1.rotate_right(32) ^ self.k2;
     }
 }
 
 impl Hasher for Feistel {
     fn finish(&self) -> u64 {
-        self.k1 ^ self.k2
+        let counter_low = Block::from_ne_bytes(self.counter.to_ne_bytes()[0..=7].try_into().unwrap());
+        let counter_high = Block::from_ne_bytes(self.counter.to_ne_bytes()[8..=15].try_into().unwrap());
+        self.k1.wrapping_add(counter_low.wrapping_mul(NOTHING_UP_MY_SLEEVE)) ^ (self.k2.wrapping_add(counter_high))
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        self.permute(bytes.len() as Block ^ NOTHING_UP_MY_SLEEVE);
+        self.permute(bytes.len() as Block);
         for byte in bytes {
             self.permute(*byte as Block);
         }
@@ -154,24 +160,24 @@ mod tests {
     fn test_hash_collisions() {
         let mut hashes = HashSet::new();
         let mut last_digits = String::with_capacity((u8::MAX as usize + 2) * (u8::MAX as usize + 1));
-        let feistel = Feistel::new(0, 0);
+        let feistel = Feistel::new(0, 0, 0);
         let hash = feistel.finish();
         println!("[] -> {:016x}", hash);
         assert!(hashes.insert(feistel.finish()));
         for b1 in 0..=u8::MAX {
-            let mut feistel = Feistel::new(0, 0);
+            let mut feistel = Feistel::new(0, 0, 0);
             feistel.write(&[b1]);
             let hash = feistel.finish();
             println!("[{:02x}] -> {:016x}", b1, hash);
             assert!(hashes.insert(hash));
             for b2 in 0..=u8::MAX {
-                let mut feistel = Feistel::new(0, 0);
+                let mut feistel = Feistel::new(0, 0, 0);
                 feistel.write(&[b1, b2]);
                 let hash = feistel.finish();
                 assert!(hashes.insert(hash));
                 println!("[{:02x}, {:02x}] -> {}", b1, b2, hash);
                 for b3 in 0..=u8::MAX {
-                    let mut feistel = Feistel::new(0, 0);
+                    let mut feistel = Feistel::new(0, 0, 0);
                     feistel.write(&[b1, b2, b3]);
                     let hash = feistel.finish();
                     assert!(hashes.insert(hash));

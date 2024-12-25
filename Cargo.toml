@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.82.0"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [dependencies]
 bit_reverse = "0.1.8"
 permutations = "0.1.1"
-rand_core = "0.9.0-alpha.2"
-rand = "0.9.0-alpha.2"
+rand_core = "0.9.0-beta.1"
+rand = "0.9.0-beta.1"

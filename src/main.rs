@@ -7,6 +7,7 @@ fn main() {
     let mut osrng = OsRng::default();
     let mut rng = BlockRng64::new(Feistel::new(
         osrng.try_next_u64().unwrap(),
+        osrng.try_next_u64().unwrap(),
         osrng.try_next_u64().unwrap()));
     let mut buffer = [0u8; 4096];
     loop {
