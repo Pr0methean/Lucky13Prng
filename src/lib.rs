@@ -99,9 +99,9 @@ impl Feistel {
     #[inline(always)]
     fn permute(&mut self, input: Block) -> Block {
         let (counter_low, counter_high) = self.counter_as_blocks();
-        let round_key_base_1 = (self.k1 ^ NOTHING_UP_MY_SLEEVE).wrapping_add(NOTHING_UP_MY_SLEEVE_2.wrapping_mul(self.k2 ^ NOTHING_UP_MY_SLEEVE_3));
-        let round_key_base_2 = (self.k2 ^ NOTHING_UP_MY_SLEEVE_2).wrapping_add(NOTHING_UP_MY_SLEEVE_3.wrapping_mul(self.k1 ^ NOTHING_UP_MY_SLEEVE));
-        let round_key_base_3 = (ParallelReverse::swap_bits(self.k1 ^ self.k2) ^ NOTHING_UP_MY_SLEEVE_3).wrapping_add(NOTHING_UP_MY_SLEEVE.wrapping_mul(self.k1.wrapping_add(self.k2) ^ NOTHING_UP_MY_SLEEVE_2));
+        let round_key_base_1 = (self.k1 ^ NOTHING_UP_MY_SLEEVE).wrapping_add(NOTHING_UP_MY_SLEEVE_2.wrapping_mul(self.k2 ^ NOTHING_UP_MY_SLEEVE_3.wrapping_add(counter_high)));
+        let round_key_base_2 = (self.k2 ^ NOTHING_UP_MY_SLEEVE_2).wrapping_add(NOTHING_UP_MY_SLEEVE_3.wrapping_mul(self.k1 ^ NOTHING_UP_MY_SLEEVE.wrapping_add(counter_high)));
+        let round_key_base_3 = (ParallelReverse::swap_bits(self.k1 ^ self.k2) ^ NOTHING_UP_MY_SLEEVE_3).wrapping_add(NOTHING_UP_MY_SLEEVE.wrapping_mul(self.k1.wrapping_add(self.k2).wrapping_add(counter_high) ^ NOTHING_UP_MY_SLEEVE_2));
         let mut l = NOTHING_UP_MY_SLEEVE.wrapping_add(counter_low).wrapping_add(self.k2.rotate_right(3));
         let mut r = input.wrapping_add(counter_high);
         let round_permutations = [
